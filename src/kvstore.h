@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <stddef.h>
+#include "mem_pool/mem_pool.h"
 
 #define KVS_MAX_TOKENS 128
 // network
@@ -22,16 +23,22 @@ typedef struct kvs_array_item_s {
     char *value;
 } kvs_array_item_t;
 
-#define KVS_ARRAY_SIZE  1024
-
 typedef struct kvs_array_s {
+
     kvs_array_item_t *table;
+    int kvs_array_size;
+    mempool_t *pool;
     int idx;
     int total;
 } kvs_array_t;
 
 
-int kvs_array_create(kvs_array_t *inst);
+/**
+* mempool_t *m mempool
+* kvs_array_t kvs_array_t *inst kvs array instance
+* int kvs_array_size total number of elements
+*/
+int kvs_array_create(mempool_t *m, kvs_array_t *inst, int kvs_array_size);
 void kvs_array_destory(kvs_array_t *inst);
 
 int kvs_array_set(kvs_array_t *inst, char *key, char *value);
@@ -124,7 +131,7 @@ int kvs_hash_exist(kvs_hash_t *hash, char *key);
 
 // general
 
-void *kvs_malloc(size_t size);
-void kvs_free(void *ptr);
+void *kvs_malloc(mempool_t *m, size_t size);
+void kvs_free(mempool_t *m, void *ptr);
 
 #endif

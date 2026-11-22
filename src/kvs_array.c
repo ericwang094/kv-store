@@ -1,21 +1,24 @@
 #include "kvstore.h"
+#include "mem_pool/mem_pool.h"
 
 // singleton
 
 kvs_array_t global_array = {0};
 
-int kvs_array_create(kvs_array_t *inst) {
-    if (!inst) return -1;
+int kvs_array_create(mempool_t *m, kvs_array_t *inst, int kvs_array_size) {
+    if (!inst || !m || kvs_array_size <= 0) return -1;
     if (inst->table) {
         return -1;
     }
 
-    inst->table = kvs_malloc(KVS_ARRAY_SIZE * sizeof(kvs_array_item_t));
+    inst->table = calloc(kvs_array_size, sizeof(kvs_array_item_t));
     if (!inst->table) {
         return -1;
     }
 
+    inst->pool = m;
     inst->total = 0;
+    inst->kvs_array_size = kvs_array_size;
 
     return 0;
 }
@@ -27,7 +30,7 @@ void kvs_array_destory(kvs_array_t *inst) {
     }
 
     if (inst->table) {
-        kvs_free(inst->table);
+        kvs_free(inst->pool, inst->table);
     }
 }
 
@@ -36,7 +39,7 @@ int kvs_array_set(kvs_array_t *inst, char *key, char *value) {
         return -1;
     }
 
-    if (inst->total == KVS_ARRAY_SIZE) {
+    if (inst->total == inst->kvs_array_size) {
         return -1;
     }
 
@@ -45,13 +48,13 @@ int kvs_array_set(kvs_array_t *inst, char *key, char *value) {
         return 1;
     }
 
-    char *kcopy = kvs_malloc(strlen(key) + 1);  //NOTE strlen 不会copy内存里的\0, strlen(“ABC”) = 3, 但是我们需要4
+    char *kcopy = kvs_malloc(inst->pool, strlen(key) + 1);  //NOTE strlen 不会copy内存里的\0, strlen(“ABC”) = 3, 但是我们需要4
     if (kcopy == NULL) {
         return -2;
     }
     strcpy(kcopy, key); // 这个function会copy \0
 
-    char *kvalue = kvs_malloc(strlen(value) + 1);
+    char *kvalue = kvs_malloc(inst->pool, strlen(value) + 1);
     if (kvalue == NULL) {
         return -2;
     }
@@ -70,7 +73,7 @@ int kvs_array_set(kvs_array_t *inst, char *key, char *value) {
         return 0;
     }
 
-    if (i== inst->total && i < KVS_ARRAY_SIZE) {
+    if (i== inst->total && i < inst->kvs_array_size) {
         inst->table[i].key = kcopy;
         inst->table[i].value = kvalue;
         inst->total++;
@@ -87,7 +90,7 @@ char * kvs_array_get(kvs_array_t *inst, char *key) {
     }
 
     int i = 0;
-    for (int i = 0; i < inst->total; i++) {
+    for (i = 0; i < inst->total; i++) {
         if (inst->table[i].key == NULL) {
             continue;
         }
@@ -113,10 +116,10 @@ int kvs_array_del(kvs_array_t *inst, char *key) {
             continue;
         }
 
-        kvs_free(inst->table[i].key);
+        kvs_free(inst->pool, inst->table[i].key);
         inst->table[i].key = NULL;
 
-        kvs_free(inst->table[i].value);
+        kvs_free(inst->pool, inst->table[i].value);
         inst->table[i].value = NULL;
 
         if (inst->total - 1 == i) {
@@ -136,7 +139,7 @@ int kvs_array_mod(kvs_array_t *inst, char *key, char *value) {
     }
 
     if (inst->total == 0) {
-        return KVS_ARRAY_SIZE;
+        return inst->kvs_array_size;
     }
 
     int i = 0;
@@ -148,9 +151,9 @@ int kvs_array_mod(kvs_array_t *inst, char *key, char *value) {
         if (strcmp(inst->table[i].key, key) != 0) {
             continue;
         }
-        kvs_free(inst->table[i].value);
+        kvs_free(inst->pool, inst->table[i].value);
 
-        char *kvalue = kvs_malloc(strlen(value) + 1);
+        char *kvalue = kvs_malloc(inst->pool, strlen(value) + 1);
         if (kvalue == NULL) {
             return 2;
         }
