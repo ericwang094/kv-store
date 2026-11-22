@@ -1,9 +1,4 @@
 #include "kvstore.h"
-#include "mem_pool/mem_pool.h"
-
-// singleton
-
-kvs_array_t global_array = {0};
 
 int kvs_array_create(mempool_t *m, kvs_array_t *inst, int kvs_array_size) {
     if (!inst || !m || kvs_array_size <= 0) return -1;
@@ -30,7 +25,7 @@ void kvs_array_destory(kvs_array_t *inst) {
     }
 
     if (inst->table) {
-        kvs_free(inst->pool, inst->table);
+        free(inst->pool);
     }
 }
 
