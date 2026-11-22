@@ -1,285 +1,198 @@
-
-
-
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <pthread.h>
-
-
 #include "kvstore.h"
 
+// djb2: h = h * 33 + c. Character position matters, so "ab" and "ba" differ.
+// unsigned char: bytes >= 0x80 (e.g. UTF-8) must not become negative on x86.
+static int _hash(const char *key, int size) {
+    if (!key || size <= 0)
+        return -1;
 
-// Key, Value --> 
-// Modify 
+    unsigned int h = 5381;
+    while (*key) {
+        h = h * 33 + (unsigned char)*key++;
+    }
 
-
-
-kvs_hash_t global_hash;
-
-
-//Connection 
-// 'C' + 'o' + 'n'
-static int _hash(char *key, int size) {
-
-	if (!key) return -1;
-
-	int sum = 0;
-	int i = 0;
-
-	while (key[i] != 0) {
-		sum += key[i];
-		i ++;
-	}
-
-	return sum % size;
-
+    return (int)(h % (unsigned int)size);
 }
 
-hashnode_t *_create_node(char *key, char *value) {
-
-	hashnode_t *node = (hashnode_t*)kvs_malloc(sizeof(hashnode_t));
-	if (!node) return NULL;
-	
-#if ENABLE_KEY_POINTER
-	char *kcopy = kvs_malloc(strlen(key) + 1);
-	if (kcopy == NULL) return NULL;
-	memset(kcopy, 0, strlen(key) + 1);
-	strncpy(kcopy, key, strlen(key));
-
-	node->key = kcopy;
-
-	char *kvalue = kvs_malloc(strlen(value) + 1);
-	if (kvalue == NULL) { 
-		kvs_free(kvalue);
-		return NULL;
-	}
-	memset(kvalue, 0, strlen(value) + 1);
-	strncpy(kvalue, value, strlen(value));
-
-	node->value = kvalue;
-	
-#else
-	strncpy(node->key, key, MAX_KEY_LEN);
-	strncpy(node->value, value, MAX_VALUE_LEN);
-#endif
-	node->next = NULL;
-
-	return node;
+static char *_dup_string(mempool_t *m, const char *str) {
+    size_t len = strlen(str);
+    char *copy = kvs_malloc(m, len + 1);
+    if (copy == NULL)
+        return NULL;
+    memcpy(copy, str, len + 1); // includes the trailing '\0'
+    return copy;
 }
 
-
-//
-int kvs_hash_create(kvs_hash_t *hash) {
-
-	if (!hash) return -1;
-
-	hash->nodes = (hashnode_t**)kvs_malloc(sizeof(hashnode_t*) * MAX_TABLE_SIZE);
-	if (!hash->nodes) return -1;
-
-	hash->max_slots = MAX_TABLE_SIZE;
-	hash->count = 0; 
-
-	return 0;
+static void _free_node(mempool_t *m, hashnode_t *node) {
+    kvs_free(m, node->key);
+    kvs_free(m, node->value);
+    kvs_free(m, node);
 }
 
-// 
+static hashnode_t *_create_node(mempool_t *m, char *key, char *value) {
+    hashnode_t *node = (hashnode_t *)kvs_malloc(m, sizeof(hashnode_t));
+    if (!node)
+        return NULL;
+
+    node->key = _dup_string(m, key);
+    if (node->key == NULL) {
+        kvs_free(m, node);
+        return NULL;
+    }
+
+    node->value = _dup_string(m, value);
+    if (node->value == NULL) {
+        kvs_free(m, node->key);
+        kvs_free(m, node);
+        return NULL;
+    }
+
+    node->next = NULL;
+    return node;
+}
+
+int kvs_hash_create(mempool_t *m, kvs_hash_t *hash, int max_slots) {
+    if (!m || !hash || max_slots <= 0)
+        return -1;
+
+    // calloc: every slot starts as NULL (an empty list)
+    hash->nodes = (hashnode_t **)calloc(max_slots, sizeof(hashnode_t *));
+    if (!hash->nodes)
+        return -1;
+
+    hash->pool      = m;
+    hash->max_slots = max_slots;
+    hash->count     = 0;
+
+    return 0;
+}
+
 void kvs_hash_destory(kvs_hash_t *hash) {
+    if (!hash || !hash->nodes)
+        return;
 
-	if (!hash) return;
+    int i = 0;
+    for (i = 0; i < hash->max_slots; i++) {
+        hashnode_t *node = hash->nodes[i];
+        while (node != NULL) {
+            hashnode_t *tmp = node;
+            node            = node->next;
+            _free_node(hash->pool, tmp); // key, value and the node itself
+        }
+        hash->nodes[i] = NULL;
+    }
 
-	int i = 0;
-	for (i = 0;i < hash->max_slots;i ++) {
-		hashnode_t *node = hash->nodes[i];
-
-		while (node != NULL) { // error
-
-			hashnode_t *tmp = node;
-			node = node->next;
-			hash->nodes[i] = node;
-			
-			kvs_free(tmp);
-			
-		}
-	}
-
-	kvs_free(hash->nodes);
-	
+    free(hash->nodes);
+    hash->nodes     = NULL;
+    hash->pool      = NULL;
+    hash->max_slots = 0;
+    hash->count     = 0;
 }
 
-// 5 + 2
-
-// mp
+// return < 0 error, == 0 success, > 0 already exists
 int kvs_hash_set(kvs_hash_t *hash, char *key, char *value) {
+    if (!hash || !hash->nodes || !key || !value)
+        return -1;
 
-	if (!hash || !key || !value) return -1;
+    int idx = _hash(key, hash->max_slots);
 
-	int idx = _hash(key, MAX_TABLE_SIZE);
+    hashnode_t *node = hash->nodes[idx];
+    while (node != NULL) {
+        if (strcmp(node->key, key) == 0) // exist
+            return 1;
+        node = node->next;
+    }
 
-	hashnode_t *node = hash->nodes[idx];
-#if 1
-	while (node != NULL) {
-		if (strcmp(node->key, key) == 0) { // exist
-			return 1;
-		}
-		node = node->next;
-	}
-#endif
+    hashnode_t *new_node = _create_node(hash->pool, key, value);
+    if (new_node == NULL)
+        return -2;
 
-	hashnode_t *new_node = _create_node(key, value);
-	new_node->next = hash->nodes[idx];
-	hash->nodes[idx] = new_node;
-	
-	hash->count ++;
+    // insert at head of the slot's list
+    new_node->next   = hash->nodes[idx];
+    hash->nodes[idx] = new_node;
 
-	return 0;
+    hash->count++;
+
+    return 0;
 }
 
+char *kvs_hash_get(kvs_hash_t *hash, char *key) {
+    if (!hash || !hash->nodes || !key)
+        return NULL;
 
-char * kvs_hash_get(kvs_hash_t *hash, char *key) {
+    int idx = _hash(key, hash->max_slots);
 
-	if (!hash || !key) return NULL;
+    hashnode_t *node = hash->nodes[idx];
+    while (node != NULL) {
+        if (strcmp(node->key, key) == 0)
+            return node->value;
+        node = node->next;
+    }
 
-	int idx = _hash(key, MAX_TABLE_SIZE);
-
-	hashnode_t *node = hash->nodes[idx];
-
-	while (node != NULL) {
-
-		if (strcmp(node->key, key) == 0) {
-			return node->value;
-		}
-
-		node = node->next;
-	}
-
-	return NULL;
-
+    return NULL;
 }
 
-
+// return < 0 error, == 0 success, > 0 not exist
 int kvs_hash_mod(kvs_hash_t *hash, char *key, char *value) {
+    if (!hash || !hash->nodes || !key || !value)
+        return -1;
 
-	if (!hash || !key) return -1;
+    int idx = _hash(key, hash->max_slots);
 
-	int idx = _hash(key, MAX_TABLE_SIZE);
+    hashnode_t *node = hash->nodes[idx];
+    while (node != NULL) {
+        if (strcmp(node->key, key) == 0)
+            break;
+        node = node->next;
+    }
 
-	hashnode_t *node = hash->nodes[idx];
+    if (node == NULL)
+        return 1;
 
-	while (node != NULL) {
+    // allocate the new value first: on failure the old value is still valid
+    char *kvalue = _dup_string(hash->pool, value);
+    if (kvalue == NULL)
+        return -2;
 
-		if (strcmp(node->key, key) == 0) {
-			break;
-		}
+    kvs_free(hash->pool, node->value);
+    node->value = kvalue;
 
-		node = node->next;
-	}
-
-	if (node == NULL) {
-		return 1;
-	}
-
-	// node --> 
-	kvs_free(node->value);
-
-	char *kvalue = kvs_malloc(strlen(value) + 1);
-	if (kvalue == NULL) return -2;
-	memset(kvalue, 0, strlen(value) + 1);
-	strncpy(kvalue, value, strlen(value));
-
-	node->value = kvalue;
-	
-	return 0;
+    return 0;
 }
 
-int kvs_hash_count(kvs_hash_t *hash) {
-	return hash->count;
-}
+int kvs_hash_count(kvs_hash_t *hash) { return hash ? hash->count : 0; }
 
+// return < 0 error, == 0 success, > 0 not exist
 int kvs_hash_del(kvs_hash_t *hash, char *key) {
-	if (!hash || !key) return -2;
+    if (!hash || !hash->nodes || !key)
+        return -1;
 
-	int idx = _hash(key, MAX_TABLE_SIZE);
+    int idx = _hash(key, hash->max_slots);
 
-	hashnode_t *head = hash->nodes[idx];
-	if (head == NULL) return -1; // noexist
-	// head node
-	if (strcmp(head->key, key) == 0) {
-		hashnode_t *tmp = head->next;
-		hash->nodes[idx] = tmp;
-		
-		kvs_free(head);
-		hash->count --;
-		
-		return 0;
-	}
+    // pp points to the pointer that links to the current node:
+    // first &nodes[idx], then &prev->next. This handles the head node
+    // and the middle/tail nodes the same way.
+    hashnode_t **pp = &hash->nodes[idx];
+    while (*pp != NULL) {
+        if (strcmp((*pp)->key, key) == 0) {
+            hashnode_t *tmp = *pp;
+            *pp             = tmp->next; // unlink
+            _free_node(hash->pool, tmp);
+            hash->count--;
+            return 0;
+        }
+        pp = &(*pp)->next;
+    }
 
-	hashnode_t *cur = head;
-	while (cur->next != NULL) {
-		if (strcmp(cur->next->key, key) == 0) break; // search node
-		
-		cur = cur->next;
-	}
-
-	if (cur->next == NULL) {
-		
-		return -1;
-	}
-
-	hashnode_t *tmp = cur->next;
-	cur->next = tmp->next;
-#if ENABLE_KEY_POINTER
-	kvs_free(tmp->key);
-	kvs_free(tmp->value);
-#endif
-	kvs_free(tmp);
-	
-	hash->count --;
-
-	return 0;
+    return 1; // not exist
 }
 
-
+// return 0 exist, 1 not exist
 int kvs_hash_exist(kvs_hash_t *hash, char *key) {
+    char *value = kvs_hash_get(hash, key);
+    if (!value)
+        return 1;
 
-	char *value = kvs_hash_get(hash, key);
-	if (!value) return 1;
-
-	return 0;
-	
+    return 0;
 }
-
-#if 0
-int main() {
-
-	kvs_hash_create(&hash);
-
-	kvs_hash_set(&hash, "Teacher1", "King");
-	kvs_hash_set(&hash, "Teacher2", "Darren");
-	kvs_hash_set(&hash, "Teacher3", "Mark");
-	kvs_hash_set(&hash, "Teacher4", "Vico");
-	kvs_hash_set(&hash, "Teacher5", "Nick");
-
-	char *value1 = kvs_hash_get(&hash, "Teacher1");
-	printf("Teacher1 : %s\n", value1);
-
-	int ret = kvs_hash_mod(&hash, "Teacher1", "King1");
-	printf("mode Teacher1 ret : %d\n", ret);
-	
-	char *value2 = kvs_hash_get(&hash, "Teacher1");
-	printf("Teacher2 : %s\n", value1);
-
-	ret = kvs_hash_del(&hash, "Teacher1");
-	printf("delete Teacher1 ret : %d\n", ret);
-
-	ret = kvs_hash_exist(&hash, "Teacher1");
-	printf("Exist Teacher1 ret : %d\n", ret);
-
-	kvs_hash_destory(&hash);
-
-	return 0;
-}
-
-#endif
-
 
