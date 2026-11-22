@@ -3,8 +3,8 @@
 #include <stdlib.h>
 #include <arpa/inet.h>
 #include <sys/time.h>
-#include "../src/time_util.h"
-#include "../src/mem_pool/mem_pool.h"
+#include "time_util.h"
+#include "mem_pool/mem_pool.h"
 
 
 #define MAX_MSG_LENGTH      1024
@@ -69,7 +69,7 @@ int connect_tcp_server(const char *ip, unsigned short port) {
 }
 
 
-void array_testcase(int connfd, int num_cases) {
+void test_kv_store(int connfd, int num_cases) {
 
     int i = 0;
 
@@ -93,35 +93,7 @@ void array_testcase(int connfd, int num_cases) {
 
     int time_used = time_sub_ms(&tv_end, &tv_begin);
 
-    printf("array testcase -> time used: %d, qps: %d\n", time_used, num_cases * 1000 / time_used);
-
-}
-
-void rbtree_testcase(int connfd, int num_cases) {
-
-    int i = 0;
-
-    struct timeval tv_begin;
-    gettimeofday(&tv_begin, NULL);
-
-    for (i = 0; i < num_cases; i++) {
-        testcase(connfd, "RSET Teacher King", "OK\r\n", "SET-Teacher");
-        testcase(connfd, "RGET Teacher", "King\r\n", "GET-Teacher");
-        testcase(connfd, "RMOD Teacher Darren", "OK\r\n", "MOD-Teacher");
-        testcase(connfd, "RGET Teacher", "Darren\r\n", "GET-Teacher");
-        testcase(connfd, "REXIST Teacher", "EXIST\r\n", "GET-Teacher");
-        testcase(connfd, "RDEL Teacher", "OK\r\n", "DEL-Teacher");
-        testcase(connfd, "RGET Teacher", "NO EXIST\r\n", "GET-Teacher");
-        testcase(connfd, "RMOD Teacher KING", "NO EXIST\r\n", "MOD-Teacher");
-        testcase(connfd, "REXIST Teacher", "NO EXIST\r\n", "GET-Teacher");
-    }
-
-    struct timeval tv_end;
-    gettimeofday(&tv_end, NULL);
-
-    int time_used = time_sub_ms(&tv_end, &tv_begin);
-
-    printf("rbtree testcase -> time used: %d, qps: %d\n", time_used, 9 * num_cases * 1000 / time_used);
+    printf("array testcase -> time used: %d, qps: %d\n", time_used, 9 * num_cases * 1000 / time_used);
 
 }
 
@@ -134,7 +106,6 @@ int main(int argc, char *argv[]) {
     char *ip = argv[1];
     int port = atoi(argv[2]);
     int connfd = connect_tcp_server(ip, port);
-    array_testcase(connfd, 100000);
-    //rbtree_testcase(connfd, 100000);
-
+    test_kv_store(connfd, 10000);
 }
+
