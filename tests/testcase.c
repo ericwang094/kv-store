@@ -3,7 +3,8 @@
 #include <stdlib.h>
 #include <arpa/inet.h>
 #include <sys/time.h>
-#include "time_util.h"
+#include "../src/time_util.h"
+#include "../src/mem_pool/mem_pool.h"
 
 
 #define MAX_MSG_LENGTH      1024
@@ -133,6 +134,7 @@ int main(int argc, char *argv[]) {
     char *ip = argv[1];
     int port = atoi(argv[2]);
     int connfd = connect_tcp_server(ip, port);
-    //array_testcase(connfd, 100000);
-    rbtree_testcase(connfd, 100000);
+    array_testcase(connfd, 100000);
+    //rbtree_testcase(connfd, 100000);
+
 }
