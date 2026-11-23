@@ -200,6 +200,140 @@ static void test_bad_args(void) {
     teardown();
 }
 
+/*
+ * traversal
+ *
+ * collect_ctx_t records every (key, value) the callback sees, so a test can
+ * check that each live key is visited exactly once with the right value.
+ */
+#define COLLECT_MAX 256
+
+typedef struct {
+    int  calls;
+    char keys[COLLECT_MAX][16];
+    char values[COLLECT_MAX][16];
+} collect_ctx_t;
+
+static int collect_cb(const char *key, const char *value, void *ctx) {
+    collect_ctx_t *c = ctx;
+    assert(c->calls < COLLECT_MAX);
+    snprintf(c->keys[c->calls], sizeof(c->keys[0]), "%s", key);
+    snprintf(c->values[c->calls], sizeof(c->values[0]), "%s", value);
+    c->calls++;
+    return 0;
+}
+
+// how many times key was visited; *value is set to what the callback saw
+static int seen(collect_ctx_t *c, const char *key, const char **value) {
+    int n = 0;
+    for (int i = 0; i < c->calls; i++) {
+        if (strcmp(c->keys[i], key) == 0) {
+            n++;
+            if (value) *value = c->values[i];
+        }
+    }
+    return n;
+}
+
+static void test_traversal_empty(void) {
+    setup();
+    collect_ctx_t c = {0};
+    assert(kvs_hash_traversal(&h, collect_cb, &c) == 0);
+    assert(c.calls == 0); // callback never called on an empty table
+    teardown();
+}
+
+static void test_traversal_visits_every_key_once(void) {
+    setup();
+    char key[16], value[16];
+    for (int i = 0; i < 100; i++) {
+        sprintf(key, "k%d", i);
+        sprintf(value, "v%d", i);
+        assert(kvs_hash_set(&h, key, value) == 0);
+    }
+    assert(kvs_hash_del(&h, "k0") == 0);
+    assert(kvs_hash_del(&h, "k50") == 0);
+    assert(kvs_hash_mod(&h, "k7", "changed") == 0);
+
+    collect_ctx_t c = {0};
+    assert(kvs_hash_traversal(&h, collect_cb, &c) == 0);
+    assert(c.calls == kvs_hash_count(&h));
+    assert(c.calls == 98);
+
+    for (int i = 0; i < 100; i++) {
+        sprintf(key, "k%d", i);
+        const char *got = NULL;
+        if (i == 0 || i == 50) {
+            assert(seen(&c, key, NULL) == 0); // deleted keys are not visited
+            continue;
+        }
+        assert(seen(&c, key, &got) == 1);     // exactly once
+        if (i == 7) {
+            assert(strcmp(got, "changed") == 0); // sees the value after mod
+        } else {
+            sprintf(value, "v%d", i);
+            assert(strcmp(got, value) == 0);
+        }
+    }
+    teardown();
+}
+
+static void test_traversal_walks_whole_chain(void) {
+    // all keys in nodes[0]: c -> b -> a. The inner loop must follow ->next.
+    setup_one_chain();
+    collect_ctx_t c = {0};
+    assert(kvs_hash_traversal(&h, collect_cb, &c) == 0);
+    assert(c.calls == 3);
+    assert(strcmp(c.keys[0], "c") == 0);
+    assert(strcmp(c.keys[1], "b") == 0);
+    assert(strcmp(c.keys[2], "a") == 0);
+    teardown();
+}
+
+static int stop_at_second_cb(const char *key, const char *value, void *ctx) {
+    (void)key;
+    (void)value;
+    int *calls = ctx;
+    (*calls)++;
+    return *calls == 2 ? 99 : 0;
+}
+
+static void test_traversal_early_stop(void) {
+    setup_one_chain();
+    int calls = 0;
+    // the callback's non-zero return value comes back to the caller unchanged
+    assert(kvs_hash_traversal(&h, stop_at_second_cb, &calls) == 99);
+    assert(calls == 2); // the 3rd node is never visited
+    teardown();
+}
+
+static int null_ctx_cb(const char *key, const char *value, void *ctx) {
+    (void)key;
+    (void)value;
+    assert(ctx == NULL);
+    return 0;
+}
+
+static void test_traversal_null_ctx(void) {
+    // ctx belongs to the caller; NULL is a valid choice
+    setup();
+    assert(kvs_hash_set(&h, "k", "v") == 0);
+    assert(kvs_hash_traversal(&h, null_ctx_cb, NULL) == 0);
+    teardown();
+}
+
+static void test_traversal_bad_args(void) {
+    setup();
+    collect_ctx_t c = {0};
+    assert(kvs_hash_traversal(NULL, collect_cb, &c) < 0);
+    assert(kvs_hash_traversal(&h, NULL, &c) < 0);
+    teardown();
+
+    // after destroy, nodes is NULL
+    assert(kvs_hash_traversal(&h, collect_cb, &c) < 0);
+    assert(c.calls == 0);
+}
+
 int main(void) {
     test_create_empty();
     test_set_get();
@@ -215,6 +349,12 @@ int main(void) {
     test_utf8_key();
     test_long_value_uses_malloc();
     test_bad_args();
+    test_traversal_empty();
+    test_traversal_visits_every_key_once();
+    test_traversal_walks_whole_chain();
+    test_traversal_early_stop();
+    test_traversal_null_ctx();
+    test_traversal_bad_args();
     printf("all hash tests passed\n");
     return 0;
 }

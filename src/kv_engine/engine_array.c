@@ -35,3 +35,6 @@ int kvs_engine_exist(char *k) {
     return kvs_array_exists(&inst, k);
 }
 
+int kvs_engine_traversal(kvs_traversal_cb cb, void *ctx) {
+    return kvs_array_traversal(&inst, cb, ctx);
+}

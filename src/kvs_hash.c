@@ -196,3 +196,21 @@ int kvs_hash_exist(kvs_hash_t *hash, char *key) {
     return 0;
 }
 
+int kvs_hash_traversal(kvs_hash_t *hash, kvs_traversal_cb cb, void *ctx) {
+    if (!hash || !hash->nodes || !cb) {
+        return -1;
+    }
+
+    for (int i = 0; i < hash->max_slots; i++) {
+        for (hashnode_t *node = hash->nodes[i]; node != NULL; node = node->next) {
+            // if ret is 0, means there are more items, continue
+            int ret = cb(node->key, node->value, ctx);
+            if (ret != 0) {
+                return ret;
+            }
+        }
+    }
+
+    return 0;
+}
+

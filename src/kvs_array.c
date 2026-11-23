@@ -25,7 +25,7 @@ void kvs_array_destory(kvs_array_t *inst) {
     }
 
     if (inst->table) {
-        free(inst->pool);
+        free(inst->table);
     }
 }
 
@@ -107,6 +107,10 @@ int kvs_array_del(kvs_array_t *inst, char *key) {
 
     int i = 0;
     for (i = 0; i < inst->total; i++) {
+        if (inst->table[i].key == NULL) {
+            continue;
+        }
+
         if (strcmp(inst->table[i].key, key) != 0) {
             continue;
         }
@@ -172,5 +176,22 @@ int kvs_array_exists(kvs_array_t *inst, char *key) {
         return 1;
     }
 
+    return 0;
+}
+
+int kvs_array_traversal(kvs_array_t *inst, kvs_traversal_cb cb, void *ctx) {
+    if (inst == NULL || cb == NULL || ctx == NULL) {
+        return -1;
+    }
+
+    for (int i = 0; i < inst->total; i++) {
+        if (inst->table[i].key == NULL) {
+            continue;
+        }
+        int ret = cb(inst->table[i].key, inst->table[i].value, ctx);
+        if (ret != 0) {
+            return ret;
+        }
+    }
     return 0;
 }
