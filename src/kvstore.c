@@ -1,4 +1,5 @@
 #include "kvstore.h"
+#include "persistence/persist.h"
 
 static mempool_t g_pool;
 
@@ -25,6 +26,7 @@ const char *command[] = {
     "DEL",
     "MOD",
     "EXIST",
+    "SAVE",
 };
 
 
@@ -36,6 +38,7 @@ enum {
     KVS_CMD_DEL,
     KVS_CMD_MOD,
     KVS_CMD_EXIST,
+    KVS_CMD_SAVE,
 
     KVS_CMD_COUNT,
 };
@@ -48,12 +51,12 @@ int kvs_split_token(char *msg, char *tokens[]) {
     int idx = 0;
 
     // 1. First call passes the string
-    char *token = strtok(msg, " ");
+    char *token = strtok(msg, " \r\n");
 
     // 2. Loop until tokens remain
     while(token != NULL) {
         tokens[idx++] = token;
-        token = strtok(NULL, " ");
+        token = strtok(NULL, " \r\n");
     }
 
     return idx;
@@ -134,8 +137,17 @@ int kvs_filter_protocol(char **tokens, int count, char *response) {
                 length = sprintf(response, "NO EXIST\r\n");
             }
             break;
+        case KVS_CMD_SAVE:
+            ret = kvs_snapshot_save(KVS_SNAPSHOT_PATH);
+            if (ret == 0) {
+                length = sprintf(response, "SAVE\r\n");
+            } else {
+                length = sprintf(response, "SAVE FAILED\r\n");
+            }
+            break;
         default:
-            assert(0);
+            length = sprintf(response, "Error\r\n");
+            break;
     }
 
     return length;
