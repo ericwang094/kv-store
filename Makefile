@@ -19,15 +19,21 @@ out/test_kv_store: tests/test_kv_store.c src/time_util.h src/time_util.c
 	@mkdir -p out
 	$(CC) $(CFLAGS) $(filter %.c,$^) -o $@
 
-test: out/test_mem_pool out/test_hash
+test: out/test_mem_pool out/test_hash out/test_persist
 	./out/test_mem_pool
 	./out/test_hash
+	./out/test_persist
 
 out/test_mem_pool: tests/test_mem_pool.c src/mem_pool/mem_pool.h src/mem_pool/mem_pool.c
 	@mkdir -p out
 	$(CC) $(CFLAGS) -fsanitize=address $(filter %.c,$^) -o $@
 
 out/test_hash: tests/test_hash.c src/kvs_hash.c src/kvstore.h src/mem_pool/mem_pool.h src/mem_pool/mem_pool.c
+	@mkdir -p out
+	$(CC) $(CFLAGS) -fsanitize=address $(filter %.c,$^) -o $@
+
+out/test_persist: tests/test_persist.c src/persistence/snapshot.c src/kv_engine/engine_hash.c src/kvs_hash.c \
+                  src/kvstore.h src/persistence/persist.h src/mem_pool/mem_pool.h src/mem_pool/mem_pool.c
 	@mkdir -p out
 	$(CC) $(CFLAGS) -fsanitize=address $(filter %.c,$^) -o $@
 

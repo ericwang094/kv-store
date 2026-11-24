@@ -140,13 +140,13 @@ int kvs_filter_protocol(char **tokens, int count, char *response) {
         case KVS_CMD_SAVE:
             ret = kvs_snapshot_save(KVS_SNAPSHOT_PATH);
             if (ret == 0) {
-                length = sprintf(response, "SAVE\r\n");
+                length = sprintf(response, "OK\r\n");
             } else {
-                length = sprintf(response, "SAVE FAILED\r\n");
+                length = sprintf(response, "ERROR\r\n");
             }
             break;
         default:
-            length = sprintf(response, "Error\r\n");
+            length = sprintf(response, "ERROR\r\n");
             break;
     }
 
@@ -195,7 +195,18 @@ int main(int argc, char *argv[]) {
     if (ret != 0) {
         return -1;
     }
+    
+    ret = kvs_snapshot_load(KVS_SNAPSHOT_PATH);
+    if (ret < 0) {
+        printf("refuse to start: %s is corrupt or unreadable\n", KVS_SNAPSHOT_PATH);
+        kvs_engine_destroy();
+        memp_destroy(&g_pool);
+        return -1;
+    }
 
+    if (ret == 1) {
+        printf("No snapshot found, start with empty store.\n");
+    }
     // reactor_start(port, kvs_protocol);
     // ntyco_start(port, kvs_protocol);
     proactor_start(port, kvs_protocol);

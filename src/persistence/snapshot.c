@@ -90,6 +90,37 @@ static int fsync_dir(const char *path) {
     return ret;
 }
 
+static int read_exact(FILE *fp, void *buf, size_t n) {
+    return fread(buf, 1, n, fp) == n ? 0 : -1;
+}
+
+static char *read_string(FILE *fp, uint32_t *crc) {
+    uint32_t len;
+    if (read_exact(fp, &len, sizeof(len)) < 0) {
+        return NULL;
+    }
+
+    if (len > KVS_SNAPSHOT_MAX_LEN) {
+        return NULL;
+    }
+
+    *crc = crc32_update(*crc, &len, sizeof(len));
+
+    char *s = malloc(len + 1);
+    if (s == NULL) {
+        return NULL;
+    }
+
+    if (read_exact(fp, s, len) < 0) {
+        free(s);
+        return NULL;
+    }
+
+    *crc = crc32_update(*crc, s, len);
+    s[len] = '\0';
+    return s; 
+}
+
 static int snapshot_save_fail(FILE *fp, const char *tmp) {
     perror("snapshot save error");
     if (fp != NULL) {
@@ -98,6 +129,14 @@ static int snapshot_save_fail(FILE *fp, const char *tmp) {
     unlink(tmp);
     return -1;
 }
+
+static int snapshot_load_fail(FILE *fp, const char *reason) {
+    fprintf(stderr, "Snapshot load failed: %s\n", reason);
+    fclose(fp);
+    return -1;
+}
+
+
 
 int kvs_snapshot_save(const char *path) {
      if (path == NULL) {
@@ -180,3 +219,78 @@ int kvs_snapshot_save(const char *path) {
     return 0;
 }
 
+int kvs_snapshot_load(const char *path) {
+    if (path == NULL) {
+        return -1;
+    }
+
+    FILE *fp = fopen(path, "rb");
+    if (fp == NULL) {
+        if (errno == ENOENT) {
+            return 1;
+        }
+        perror("snapshot load fopen");
+        return -1;
+    }
+
+    char magic[4];
+    uint8_t version;
+    uint32_t count;
+    
+    // read header
+    if (read_exact(fp, magic, sizeof(magic)) < 0 ||
+        read_exact(fp, &version, sizeof(version)) < 0 ||
+        read_exact(fp, &count, sizeof(count)) < 0) {
+        return snapshot_load_fail(fp, "truncated header");
+    }
+
+    if (memcmp(magic, KVS_SNAPSHOT_MAGIC, sizeof(magic)) != 0) {
+        return snapshot_load_fail(fp, "bad magic, not a snapshot file");
+    }
+
+    if (version != KVS_SNAPSHOT_VERSION) {
+        return snapshot_load_fail(fp, "Unsupported version");
+    }
+
+    // read data entry by entry and put it into kvs engine
+    uint32_t crc = 0;
+    for (uint32_t i = 0; i < count; i++) {
+        char *key = read_string(fp, &crc);
+        if (key == NULL) {
+            return snapshot_load_fail(fp, "bad key");
+        }
+
+        char  *value = read_string(fp, &crc);
+        if (value == NULL) {
+            free(key);
+            return snapshot_load_fail(fp, "bad value");
+        }
+
+        int ret = kvs_engine_set(key, value);
+        free(key);
+        free(value);
+
+        if (ret != 0) {
+            return snapshot_load_fail(fp, "kvs engine set failed");
+        }
+    }
+
+    // read checksum and validation
+    uint32_t crc_in_file;
+    if (read_exact(fp, &crc_in_file, sizeof(crc_in_file)) < 0) {
+        return snapshot_load_fail(fp, "missing crc");
+    }
+
+    if (crc != crc_in_file) {
+        return snapshot_load_fail(fp, "crc mismatch, file is corrupt");
+    }
+
+    if (fgetc(fp) != EOF) {
+        return snapshot_load_fail(fp, "trailing bytes after crc");
+    }
+
+    fclose(fp);
+    printf("snapshot loaded: %u keys from %s\n", count, path);
+    return 0;
+
+}
