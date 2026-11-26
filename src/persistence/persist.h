@@ -4,9 +4,11 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <stdio.h>
 
 uint32_t crc32_update(uint32_t crc, const void *data, size_t len);
 int fsync_dir(const char *path);
+int read_exact(FILE *fp, void *buf, size_t n);
 
 // ------- SNAPSHOT -----
 
@@ -17,7 +19,10 @@ int fsync_dir(const char *path);
 * [checksum u32]
 */
 
+// 0 replayed, 1 file does not exist <0 error
 int kvs_snapshot_load(const char *path);
+
+
 #define KVS_SNAPSHOT_PATH "dump.kvs"
 #define KVS_SNAPSHOT_MAGIC "KVS1"
 #define KVS_SNAPSHOT_VERSION 1
@@ -53,5 +58,6 @@ int kvs_aof_open(const char *path);
 // 0 ok, < 0 write fail
 int kvs_aof_append(uint8_t, const char *key, const char *value);
 void kvs_aof_close(void);
+int kvs_aof_load(const char *path);
 
 #endif

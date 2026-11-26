@@ -47,3 +47,8 @@ int fsync_dir(const char *path) {
 
     return ret;
 }
+
+// 0 if exactly n bytes were read, -1 otherwise (check feof / ferror to tell why)
+int read_exact(FILE *fp, void *buf, size_t n) {
+    return fread(buf, 1, n, fp) == n ? 0 : -1;
+}

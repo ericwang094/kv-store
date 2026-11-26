@@ -11,7 +11,6 @@
 #include <limits.h>
 
 #include "persistence/persist.h"
-#include "persistence/persist_util.c"
 #include "kvstore.h"
 
 #define KVS_SNAPSHOT_COUNT_OFFSET 5 // magic(4) + version(1)
@@ -51,9 +50,6 @@ static int snapshot_write_cb(const char *key, const char *value, void *ctx) {
 }
 
 
-static int read_exact(FILE *fp, void *buf, size_t n) {
-    return fread(buf, 1, n, fp) == n ? 0 : -1;
-}
 
 static char *read_string(FILE *fp, uint32_t *crc) {
     uint32_t len;

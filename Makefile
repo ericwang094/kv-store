@@ -1,7 +1,7 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -g -Isrc
 
-SERVER_SRC = src/kvstore.c src/mem_pool/mem_pool.c src/proactor.c src/persistence/snapshot.c src/persistence/aof.c src/persistence/persistence_util.c
+SERVER_SRC = src/kvstore.c src/mem_pool/mem_pool.c src/proactor.c src/persistence/snapshot.c src/persistence/aof.c src/persistence/persist_util.c
 SERVER_HDR = src/kvstore.h src/mem_pool/mem_pool.h src/persistence/persist.h
 
 all: out/kvstore_array out/kvstore_hash out/test_kv_store
@@ -33,7 +33,7 @@ out/test_hash: tests/test_hash.c src/kvs_hash.c src/kvstore.h src/mem_pool/mem_p
 	$(CC) $(CFLAGS) -fsanitize=address $(filter %.c,$^) -o $@
 
 out/test_persist: tests/test_persist.c src/persistence/snapshot.c src/kv_engine/engine_hash.c src/kvs_hash.c \
-                  src/kvstore.h src/persistence/persist.h src/mem_pool/mem_pool.h src/mem_pool/mem_pool.c
+                  src/kvstore.h src/persistence/persist.h src/mem_pool/mem_pool.h src/mem_pool/mem_pool.c src/persistence/persist_util.c
 	@mkdir -p out
 	$(CC) $(CFLAGS) -fsanitize=address $(filter %.c,$^) -o $@
 

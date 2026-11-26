@@ -114,7 +114,7 @@ int kvs_filter_protocol(char **tokens, int count, char *response) {
         case KVS_CMD_DEL:
             ret = kvs_engine_del(key);
 
-            if (ret == 0 && kvs_aof_append(KVS_AOF_OP_DEL, key, value) < 0) {
+            if (ret == 0 && kvs_aof_append(KVS_AOF_OP_DEL, key, NULL) < 0) {
                 ret = -1;
             }
 
@@ -221,10 +221,21 @@ int main(int argc, char *argv[]) {
         printf("No snapshot found, start with empty store.\n");
     }
 
-    if (kvs_aof_open(KVS_AOF_PATH) != 0) {
-        printf("reufse to start: cannot open %s\n", KVS_AOF_PATH);
+    // replay must happen before kvs_aof_open, and goes straight to the engine,
+    // so replayed operations are not appended to the log again
+    ret = kvs_aof_load(KVS_AOF_PATH);
+    if (ret < 0) {
+        printf("refuse to start: %s is corrupt or unreadable\n", KVS_AOF_PATH);
         kvs_engine_destroy();
         memp_destroy(&g_pool);
+        return -1;
+    }
+
+    if (kvs_aof_open(KVS_AOF_PATH) != 0) {
+        printf("refuse to start: cannot open %s\n", KVS_AOF_PATH);
+        kvs_engine_destroy();
+        memp_destroy(&g_pool);
+        return -1;
     }
     // reactor_start(port, kvs_protocol);
     // ntyco_start(port, kvs_protocol);
