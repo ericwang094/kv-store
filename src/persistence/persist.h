@@ -58,6 +58,10 @@ int kvs_aof_open(const char *path);
 // 0 ok, < 0 write fail
 int kvs_aof_append(uint8_t, const char *key, const char *value);
 void kvs_aof_close(void);
+
+// drop all records, keep the header. Call ONLY after a snapshot save succeeded.
+// 0 ok, < 0 error (data is still safe: snapshot + full log replay is correct)
+int kvs_aof_reset(void);
 int kvs_aof_load(const char *path);
 
 #endif

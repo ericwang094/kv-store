@@ -152,6 +152,11 @@ int kvs_filter_protocol(char **tokens, int count, char *response) {
             break;
         case KVS_CMD_SAVE:
             ret = kvs_snapshot_save(KVS_SNAPSHOT_PATH);
+            // order matters: the log is cleared only after the snapshot is safely on disk.
+            // a crash in between just replays the full log on top of the snapshot, which is correct
+            if (ret == 0 && kvs_aof_reset() != 0) {
+                fprintf(stderr, "warning: snapshot saved but aof reset failed, log kept\n");
+            }
             if (ret == 0) {
                 length = sprintf(response, "OK\r\n");
             } else {

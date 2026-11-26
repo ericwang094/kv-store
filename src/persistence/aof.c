@@ -152,6 +152,20 @@ void kvs_aof_close(void) {
     g_aof_fd = -1;
 }
 
+int kvs_aof_reset(void) {
+    if (g_aof_fd < 0) {
+        return 0;
+    }
+
+    // keep only the header. fd is O_APPEND, so the next write goes to the
+    // new end of file automatically, no lseek needed
+    if (ftruncate(g_aof_fd, KVS_AOF_HEADER_SIZE) != 0 || fsync(g_aof_fd) != 0) {
+        perror("aof reset");
+        return -1;
+    }
+    return 0;
+}
+
 static void aof_record_free(aof_record_t *rec) {
     free(rec->key);
     free(rec->value);
