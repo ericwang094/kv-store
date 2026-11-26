@@ -87,6 +87,11 @@ int kvs_filter_protocol(char **tokens, int count, char *response) {
         case KVS_CMD_SET:
             ret = kvs_engine_set(key, value);
 
+            // save aof file
+            if (ret == 0 && kvs_aof_append(KVS_AOF_OP_SET, key, value) < 0) {
+                ret = -1;
+            }
+
             if (ret < 0) {
                 length = sprintf(response, "ERROR\r\n");
             } else if (ret == 0) {
@@ -109,6 +114,10 @@ int kvs_filter_protocol(char **tokens, int count, char *response) {
         case KVS_CMD_DEL:
             ret = kvs_engine_del(key);
 
+            if (ret == 0 && kvs_aof_append(KVS_AOF_OP_DEL, key, value) < 0) {
+                ret = -1;
+            }
+
             if (ret < 0) {
                 length = sprintf(response, "ERROR\r\n");
             } else if (ret == 0){ 
@@ -119,6 +128,10 @@ int kvs_filter_protocol(char **tokens, int count, char *response) {
             break;
         case KVS_CMD_MOD:
             ret = kvs_engine_mod(key, value);
+
+            if (ret == 0 && kvs_aof_append(KVS_AOF_OP_MOD, key, value) < 0) {
+                ret = -1;
+            }
 
             if (ret < 0) {
                 length = sprintf(response, "ERROR\r\n");
@@ -195,7 +208,7 @@ int main(int argc, char *argv[]) {
     if (ret != 0) {
         return -1;
     }
-    
+
     ret = kvs_snapshot_load(KVS_SNAPSHOT_PATH);
     if (ret < 0) {
         printf("refuse to start: %s is corrupt or unreadable\n", KVS_SNAPSHOT_PATH);
@@ -206,6 +219,12 @@ int main(int argc, char *argv[]) {
 
     if (ret == 1) {
         printf("No snapshot found, start with empty store.\n");
+    }
+
+    if (kvs_aof_open(KVS_AOF_PATH) != 0) {
+        printf("reufse to start: cannot open %s\n", KVS_AOF_PATH);
+        kvs_engine_destroy();
+        memp_destroy(&g_pool);
     }
     // reactor_start(port, kvs_protocol);
     // ntyco_start(port, kvs_protocol);

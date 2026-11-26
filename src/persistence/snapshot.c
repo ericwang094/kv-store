@@ -9,9 +9,9 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <limits.h>
-#include <libgen.h>
 
 #include "persistence/persist.h"
+#include "persistence/persist_util.c"
 #include "kvstore.h"
 
 #define KVS_SNAPSHOT_COUNT_OFFSET 5 // magic(4) + version(1)
@@ -22,18 +22,6 @@ typedef struct snapshot_ctx_s {
     uint32_t count;
 } snapshot_ctx_t;
 
-static uint32_t crc32_update(uint32_t crc, const void *data, size_t len) {
-    const unsigned char *p = data;
-    crc = ~crc;
-    while (len--) {
-        crc ^= *p++;
-        for (int k = 0; k < 8; k++) {
-            crc = (crc >> 1) ^ (0xEDB88320u & -(crc & 1));
-        }
-    }
-
-    return ~crc;
-}
 
 static int write_bytes(snapshot_ctx_t *ctx, const void *data, size_t len) {
     if (len > 0 && fwrite(data, 1, len, ctx->fp) != len) {
@@ -62,33 +50,6 @@ static int snapshot_write_cb(const char *key, const char *value, void *ctx) {
     return 0;
 }
 
-static int fsync_dir(const char *path) {
-
-    char buf[PATH_MAX];
-
-    int ret;
-
-    ret = snprintf(buf, sizeof(buf), "%s", path);
-
-    // duplicate path to memory buffer.
-    // if < 0, means writing failed
-    // if >= (int)sizeof(buf), means the path lenth exceeds PATH_MAX,
-    if (ret < 0 || ret >= (int)sizeof(buf)) {
-        return -1;
-    }
-
-    const char *dir = dirname(buf);
-
-    int dfd = open(dir, O_RDONLY);
-    if (dfd < 0) {
-        return -1;
-    }
-
-    ret = fsync(dfd);
-    close(dfd);
-
-    return ret;
-}
 
 static int read_exact(FILE *fp, void *buf, size_t n) {
     return fread(buf, 1, n, fp) == n ? 0 : -1;
