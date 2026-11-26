@@ -15,6 +15,8 @@ extern int reactor_start(unsigned short port, msg_handler handler);
 extern int proactor_start(unsigned short port, msg_handler handler);
 extern int ntyco_start(unsigned short port, msg_handler handler);
 
+typedef int (*kvs_traversal_cb)(const char *key, const char *value, void *ctx);
+
 // kvs_array
 
 typedef struct kvs_array_item_s {
@@ -44,6 +46,7 @@ char *kvs_array_get(kvs_array_t *inst, char *key);
 int   kvs_array_del(kvs_array_t *inst, char *key);
 int   kvs_array_mod(kvs_array_t *inst, char *key, char *value);
 int   kvs_array_exists(kvs_array_t *inst, char *key);
+int   kvs_array_traversal(kvs_array_t *inst, kvs_traversal_cb cb, void *ctx);
 
 // btrees
 
@@ -81,6 +84,7 @@ char *kvs_rbtree_get(kvs_rbtree_t *inst, char *key);
 int   kvs_rbtree_del(kvs_rbtree_t *inst, char *key);
 int   kvs_rbtree_mod(kvs_rbtree_t *inst, char *key, char *value);
 int   kvs_rbtree_exist(kvs_rbtree_t *inst, char *key);
+int   kvs_rbtree_traversal(kvs_rbtree_t *inst, kvs_traversal_cb cb, void *ctx);
 
 // hash
 typedef struct hashnode_s {
@@ -113,6 +117,7 @@ int   kvs_hash_mod(kvs_hash_t *hash, char *key, char *value);
 int   kvs_hash_del(kvs_hash_t *hash, char *key);
 int   kvs_hash_exist(kvs_hash_t *hash, char *key);
 int   kvs_hash_count(kvs_hash_t *hash);
+int   kvs_hash_traversal(kvs_hash_t *hash, kvs_traversal_cb cb, void *ctx);
 
 // engine interface: exactly one engine_xxx.c provides these
 int kvs_engine_init(mempool_t *m);
@@ -122,6 +127,7 @@ char *kvs_engine_get(char *key);
 int kvs_engine_del(char *key);
 int kvs_engine_mod(char *key, char *value);
 int kvs_engine_exist(char *key);
+int kvs_engine_traversal(kvs_traversal_cb cb, void *ctx);
 const char *kvs_engine_name(void);
 
 

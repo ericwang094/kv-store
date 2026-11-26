@@ -1,3 +1,6 @@
 
 out/
 
+dump.kvs
+append.aof
+*.tmp

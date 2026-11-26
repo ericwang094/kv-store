@@ -1,4 +1,5 @@
 #include "kvstore.h"
+#include "persistence/persist.h"
 
 static mempool_t g_pool;
 
@@ -25,6 +26,7 @@ const char *command[] = {
     "DEL",
     "MOD",
     "EXIST",
+    "SAVE",
 };
 
 
@@ -36,6 +38,7 @@ enum {
     KVS_CMD_DEL,
     KVS_CMD_MOD,
     KVS_CMD_EXIST,
+    KVS_CMD_SAVE,
 
     KVS_CMD_COUNT,
 };
@@ -48,12 +51,12 @@ int kvs_split_token(char *msg, char *tokens[]) {
     int idx = 0;
 
     // 1. First call passes the string
-    char *token = strtok(msg, " ");
+    char *token = strtok(msg, " \r\n");
 
     // 2. Loop until tokens remain
     while(token != NULL) {
         tokens[idx++] = token;
-        token = strtok(NULL, " ");
+        token = strtok(NULL, " \r\n");
     }
 
     return idx;
@@ -84,6 +87,11 @@ int kvs_filter_protocol(char **tokens, int count, char *response) {
         case KVS_CMD_SET:
             ret = kvs_engine_set(key, value);
 
+            // save aof file
+            if (ret == 0 && kvs_aof_append(KVS_AOF_OP_SET, key, value) < 0) {
+                ret = -1;
+            }
+
             if (ret < 0) {
                 length = sprintf(response, "ERROR\r\n");
             } else if (ret == 0) {
@@ -106,6 +114,10 @@ int kvs_filter_protocol(char **tokens, int count, char *response) {
         case KVS_CMD_DEL:
             ret = kvs_engine_del(key);
 
+            if (ret == 0 && kvs_aof_append(KVS_AOF_OP_DEL, key, NULL) < 0) {
+                ret = -1;
+            }
+
             if (ret < 0) {
                 length = sprintf(response, "ERROR\r\n");
             } else if (ret == 0){ 
@@ -116,6 +128,10 @@ int kvs_filter_protocol(char **tokens, int count, char *response) {
             break;
         case KVS_CMD_MOD:
             ret = kvs_engine_mod(key, value);
+
+            if (ret == 0 && kvs_aof_append(KVS_AOF_OP_MOD, key, value) < 0) {
+                ret = -1;
+            }
 
             if (ret < 0) {
                 length = sprintf(response, "ERROR\r\n");
@@ -134,8 +150,22 @@ int kvs_filter_protocol(char **tokens, int count, char *response) {
                 length = sprintf(response, "NO EXIST\r\n");
             }
             break;
+        case KVS_CMD_SAVE:
+            ret = kvs_snapshot_save(KVS_SNAPSHOT_PATH);
+            // order matters: the log is cleared only after the snapshot is safely on disk.
+            // a crash in between just replays the full log on top of the snapshot, which is correct
+            if (ret == 0 && kvs_aof_reset() != 0) {
+                fprintf(stderr, "warning: snapshot saved but aof reset failed, log kept\n");
+            }
+            if (ret == 0) {
+                length = sprintf(response, "OK\r\n");
+            } else {
+                length = sprintf(response, "ERROR\r\n");
+            }
+            break;
         default:
-            assert(0);
+            length = sprintf(response, "ERROR\r\n");
+            break;
     }
 
     return length;
@@ -184,6 +214,34 @@ int main(int argc, char *argv[]) {
         return -1;
     }
 
+    ret = kvs_snapshot_load(KVS_SNAPSHOT_PATH);
+    if (ret < 0) {
+        printf("refuse to start: %s is corrupt or unreadable\n", KVS_SNAPSHOT_PATH);
+        kvs_engine_destroy();
+        memp_destroy(&g_pool);
+        return -1;
+    }
+
+    if (ret == 1) {
+        printf("No snapshot found, start with empty store.\n");
+    }
+
+    // replay must happen before kvs_aof_open, and goes straight to the engine,
+    // so replayed operations are not appended to the log again
+    ret = kvs_aof_load(KVS_AOF_PATH);
+    if (ret < 0) {
+        printf("refuse to start: %s is corrupt or unreadable\n", KVS_AOF_PATH);
+        kvs_engine_destroy();
+        memp_destroy(&g_pool);
+        return -1;
+    }
+
+    if (kvs_aof_open(KVS_AOF_PATH) != 0) {
+        printf("refuse to start: cannot open %s\n", KVS_AOF_PATH);
+        kvs_engine_destroy();
+        memp_destroy(&g_pool);
+        return -1;
+    }
     // reactor_start(port, kvs_protocol);
     // ntyco_start(port, kvs_protocol);
     proactor_start(port, kvs_protocol);
